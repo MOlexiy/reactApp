@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ./backend/DotnetPostgresApi
+      dockerfile: Dockerfile
+    container_name: dotnet_api
+    ports:
+      - "8080:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - DB_HOST=postgres_db
+      - DB_PORT=5432
+      - DB_DATABASE=tableDatabase
+      - DB_USER=tableDatabase_user
+      - DB_PASSWORD=tableDatabase_password
+    depends_on:
+      - postgres_db
+    
+  postgres_db:
+      image: postgres:14-alpine
+      container_name: postgres_db
+      ports:
+        - "5432:5432"
+      environment:
+        - POSTGRES_DB=tableDatabase
+        - POSTGRES_USER=tableDatabase_user
+        - POSTGRES_PASSWORD=tableDatabase_password
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+volumes:
+  postgres_data:
