@@ -38,6 +38,7 @@ builder.Services.AddAuthentication(options =>
 }) 
 .AddJwtBearer(options =>
 {
+    options.MapInboundClaims = false;
     options.SaveToken = true;
     options.RequireHttpsMetadata = false; // Set to true in production
     options.TokenValidationParameters = new TokenValidationParameters

@@ -1,9 +1,10 @@
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using DotnetPostgresApi.Models;
 
 namespace DotnetPostgresApi.Data
 {
-    public class ApiDbContext : DbContext
+    public class ApiDbContext : IdentityDbContext<AppUser>
     {
         public ApiDbContext(DbContextOptions<ApiDbContext> options) : base(options)
         {

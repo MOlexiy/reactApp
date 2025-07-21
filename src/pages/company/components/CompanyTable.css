@@ -1,0 +1,9 @@
+.button-table {
+    gap: 10px;
+}
+
+.table-all {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid #ccc;
+}
