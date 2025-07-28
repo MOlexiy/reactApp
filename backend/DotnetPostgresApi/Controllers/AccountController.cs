@@ -18,13 +18,15 @@ public class AccountController : ControllerBase
     private readonly SignInManager<AppUser> _signInManager;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AccountController> _logger;
+    private readonly RoleManager<IdentityRole> _roleManager;
 
-    public AccountController(UserManager<AppUser> userManager, SignInManager<AppUser> signInManager, IConfiguration configuration, ILogger<AccountController> logger)
+    public AccountController(UserManager<AppUser> userManager, SignInManager<AppUser> signInManager, IConfiguration configuration, ILogger<AccountController> logger, RoleManager<IdentityRole> roleManager)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _configuration = configuration;
         _logger = logger;
+        _roleManager = roleManager;
     }
 
     [HttpPost("register")]
@@ -44,32 +46,58 @@ public class AccountController : ControllerBase
             return StatusCode(StatusCodes.Status500InternalServerError, new { Status = "Error", Message = "User creation failed! Please check user details and try again." });
         }
 
+        if (!await _roleManager.RoleExistsAsync("User"))
+        {
+            await _roleManager.CreateAsync(new IdentityRole("User"));
+        }
+        await _userManager.AddToRoleAsync(user, "User");
+
         return Ok(new { Status = "Success", Message = "User created successfully!" });
     }
 
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginDto loginDto)
     {
-        var result = await _signInManager.PasswordSignInAsync(loginDto.Username, loginDto.Password, false, false);
-        if (!result.Succeeded)
+        AppUser? user = null;
+        user = await _userManager.FindByNameAsync(loginDto.Username);
+
+        if (user == null)
         {
-            return Unauthorized();
+            user = await _userManager.FindByEmailAsync(loginDto.Username);
+        }
+        
+        if (user == null)
+        {
+            _logger.LogError("User not found during login attempt: {Username}", loginDto.Username);
+            return StatusCode(StatusCodes.Status404NotFound, new { Status = "Error", Message = "Invalid login credentials." });
         }
 
-        var user = await _userManager.FindByNameAsync(loginDto.Username);
-        var token = GenerateJwtToken(user);
+        var result = await _signInManager.CheckPasswordSignInAsync(user, loginDto.Password, false);
+        if (!result.Succeeded)
+        {
+            _logger.LogWarning("Invalid login attempt for user: {Username}", loginDto.Username);
+            return StatusCode(StatusCodes.Status401Unauthorized, new { Status = "Error", Message = "Invalid login credentials." });
+        }        
 
+        var token = await GenerateJwtToken(user);
         return Ok(new { Token = token });
     }
 
-    private string GenerateJwtToken(AppUser user)
+    private async Task<string> GenerateJwtToken(AppUser user)
     {
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.UserName),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim(ClaimTypes.NameIdentifier, user.Id)
+            new Claim(ClaimTypes.NameIdentifier, user.Id),
+            new Claim(ClaimTypes.Name, user.UserName),
         };
+
+        var roles = await _userManager.GetRolesAsync(user);
+        foreach (var role in roles)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -89,12 +117,13 @@ public class AccountController : ControllerBase
     public async Task<IActionResult> GetProfile()
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        _logger.LogInformation("--- GetProfile --- Attempting to find user with ID from token: {UserId}", userId);
         var user = await _userManager.FindByIdAsync(userId);
         if (user == null)
         {
             return NotFound();
         }
+
+        var roles = await _userManager.GetRolesAsync(user);
 
         return Ok(new
         {
@@ -102,7 +131,8 @@ public class AccountController : ControllerBase
             user.UserName,
             user.Email,
             user.FullName,
-            user.Company
+            user.Company,
+            Roles = roles
         });
     }
 
@@ -111,7 +141,23 @@ public class AccountController : ControllerBase
     public async Task<IActionResult> GetUsers()
     {
         var users = _userManager.Users.ToList();
-        return Ok(users);
+        var usersWithRoles = new List<object>();
+
+        foreach (var user in users)
+        {
+            var roles = await _userManager.GetRolesAsync(user);
+            usersWithRoles.Add(new
+            {
+                user.Id,
+                user.UserName,
+                user.Email,
+                user.FullName,
+                user.Company,
+                Roles = roles
+            });
+        }
+
+        return Ok(usersWithRoles);
     }
 
     [HttpGet("user/{id}")]
@@ -123,17 +169,26 @@ public class AccountController : ControllerBase
         {
             return NotFound();
         }
+        var roles = await _userManager.GetRolesAsync(user);
 
-        return Ok(user);
+        return Ok(new
+        {
+            user.Id,
+            user.UserName,
+            user.Email,
+            user.FullName,
+            user.Company,
+            Roles = roles
+        });
     }
 
     [HttpPut("user/{id}")]
-    [Authorize]
-    public async Task<IActionResult> UpdateUser(string id, AppUser updatedUser)
+    [Authorize(Roles = "Admin, User")]
+    public async Task<IActionResult> UpdateUser(string id, [FromBody] UserUpdateDto updatedUser)
     {
-        if (id != updatedUser.Id)
+        if (!User.IsInRole("Admin") && User.FindFirstValue(ClaimTypes.NameIdentifier) != id)
         {
-            return BadRequest();
+            return Forbid("You do not have permission to update this user's profile.");
         }
 
         var user = await _userManager.FindByIdAsync(id);
@@ -150,7 +205,25 @@ public class AccountController : ControllerBase
         var result = await _userManager.UpdateAsync(user);
         if (!result.Succeeded)
         {
-            return StatusCode(StatusCodes.Status500InternalServerError, new { Status = "Error", Message = "User update failed!" });
+            return StatusCode(StatusCodes.Status500InternalServerError, new { Status = "Error", Message = "User update failed!", Errors = result.Errors.Select(e => e.Description) });
+        }
+
+        if (User.IsInRole("Admin") && updatedUser.Roles != null)
+        {
+            var currentRoles = await _userManager.GetRolesAsync(user);
+            var rolesToAdd = updatedUser.Roles.Except(currentRoles);
+            var rolesToRemove = currentRoles.Except(updatedUser.Roles);
+
+            foreach (var roleName in rolesToAdd)
+            {
+                if (!await _roleManager.RoleExistsAsync(roleName))
+                {
+                    await _roleManager.CreateAsync(new IdentityRole(roleName));
+                }
+                await _userManager.AddToRoleAsync(user, roleName);
+            }
+
+            await _userManager.RemoveFromRolesAsync(user, rolesToRemove);
         }
 
         return Ok(new { Status = "Success", Message = "User updated successfully!" });
@@ -175,3 +248,5 @@ public class AccountController : ControllerBase
         return Ok(new { Status = "Success", Message = "User deleted successfully!" });
     }
 }
+
+public record UserUpdateDto(string UserName, string Email, string FullName, string Company, List<string>? Roles);

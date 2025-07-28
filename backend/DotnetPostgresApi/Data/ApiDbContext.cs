@@ -10,7 +10,7 @@ namespace DotnetPostgresApi.Data
         {
         }
 
-        public DbSet<Item> Items { get; set; } = null;
+        public DbSet<Item> Items { get; set; } = default!;
 
         // protected override void OnModelCreating(ModelBuilder modelBuilder)
         // {

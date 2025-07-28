@@ -11,6 +11,7 @@ export const CompanyForm = ({ initialData, onSubmit, onCancel }) => {
 
   useEffect(() => {
     if (initialData) {
+
       setFormData({
         name: initialData.name || "",
         shortName: initialData.shortName || "",

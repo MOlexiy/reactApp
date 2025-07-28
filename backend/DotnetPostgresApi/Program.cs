@@ -35,7 +35,7 @@ builder.Services.AddAuthentication(options =>
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
-}) 
+})
 .AddJwtBearer(options =>
 {
     options.MapInboundClaims = false;
@@ -50,6 +50,8 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
     };
 });
+
+builder.Services.AddAuthorization();
 
 var allowedHostsCors = builder.Configuration.GetSection("AllowedHostsCors").Get<string[]>();
 
