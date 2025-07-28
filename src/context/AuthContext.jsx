@@ -17,7 +17,6 @@ export const AuthProvider = ({ children }) => {
           const userData = await getUserProfile(token);
           setUser(userData);
         } catch (error) {
-          console.error("User is not correct", error);
           setUser(null);
           setToken(null);
           localStorage.removeItem("token");
