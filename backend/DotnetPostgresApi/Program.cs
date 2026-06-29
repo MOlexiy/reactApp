@@ -58,7 +58,7 @@ var allowedHostsCors = builder.Configuration.GetSection("AllowedHostsCors").Get<
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(MyAllowSpecificOrigins,
-        builder => builder.WithOrigins(allowedHostsCors)
+        builder => builder.AllowAnyOrigin()
                           .AllowAnyHeader()
                           .AllowAnyMethod());
 });
